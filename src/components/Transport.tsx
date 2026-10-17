@@ -34,7 +34,7 @@ export function Transport() {
     <div className="flex flex-wrap items-center gap-2">
       <button
         type="button"
-        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full bg-amber px-4 font-medium text-ink"
+        className="play-btn inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full px-4 font-medium"
         aria-pressed={playing}
         onClick={toggle}
       >
