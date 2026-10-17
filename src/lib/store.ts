@@ -50,6 +50,7 @@ export type AppState = {
   armed: boolean;
   playing: boolean;
   recording: boolean;
+  followMix: boolean;
   bpm: number;
   step: number;
   armStep: number;
@@ -62,6 +63,7 @@ export type AppState = {
   decks: Record<DeckId, DeckState>;
   setPlaying: (playing: boolean) => void;
   setRecording: (recording: boolean) => void;
+  setFollowMix: (followMix: boolean) => void;
   setBpm: (bpm: number) => void;
   setStep: (step: number) => void;
   setArmed: (armed: boolean) => void;
@@ -234,15 +236,6 @@ function blankAutomation(): (MixFrame | null)[] {
   return Array.from({ length: 16 }, () => null);
 }
 
-function demoAutomation(): (MixFrame | null)[] {
-  const decks = factoryDecks();
-  const neutral = captureMix(decks, 0.5, 0.78);
-  const steps = blankAutomation();
-  steps[0] = { ...neutral, crossfade: 0.22 };
-  steps[8] = { ...neutral, crossfade: 0.78, aVol: 0.72, bVol: 0.92 };
-  return steps;
-}
-
 const MIX_FIELDS = [
   "aVol",
   "bVol",
@@ -290,7 +283,7 @@ function writeLock(
 }
 
 export function loadSaved(): Partial<
-  Pick<AppState, "bpm" | "crossfade" | "master" | "decks" | "automation">
+  Pick<AppState, "bpm" | "crossfade" | "master" | "decks" | "automation" | "followMix">
 > | null {
   if (typeof window === "undefined") return null;
   try {
@@ -302,6 +295,7 @@ export function loadSaved(): Partial<
       master?: unknown;
       decks?: { a?: unknown; b?: unknown };
       automation?: unknown;
+      followMix?: unknown;
     };
     const base = factoryDecks();
     const automation = parseAutomation(data.automation);
@@ -314,6 +308,7 @@ export function loadSaved(): Partial<
         b: mergeDeck(base.b, data.decks?.b),
       },
       ...(automation ? { automation } : {}),
+      followMix: data.followMix === true,
     };
   } catch {
     return null;
@@ -328,6 +323,7 @@ export function persistState(state: AppState): void {
     master: state.master,
     decks: state.decks,
     automation: state.automation,
+    followMix: state.followMix,
   };
   window.localStorage.setItem(KEY, JSON.stringify(payload));
 }
@@ -344,18 +340,20 @@ export const useApp = create<AppState>((set, get) => ({
   armed: false,
   playing: false,
   recording: false,
+  followMix: false,
   bpm: 124,
   step: -1,
   armStep: 0,
   mixerHolds: 0,
   crossfade: 0.5,
   master: 0.78,
-  automation: demoAutomation(),
+  automation: blankAutomation(),
   mobilePane: "a",
   synthDeck: null,
   decks: factoryDecks(),
   setPlaying: (playing) => set({ playing }),
   setRecording: (recording) => set({ recording }),
+  setFollowMix: (followMix) => set({ followMix }),
   setBpm: (bpm) => set({ bpm: Math.min(180, Math.max(70, Math.round(bpm))) }),
   setStep: (step) => {
     const state = get();
@@ -369,15 +367,17 @@ export const useApp = create<AppState>((set, get) => ({
       set({ step, automation });
       return;
     }
-    const lock = state.automation[step];
-    if (lock && state.mixerHolds === 0) {
-      set({
-        step,
-        crossfade: lock.crossfade,
-        master: lock.master,
-        decks: applyMix(state.decks, lock),
-      });
-      return;
+    if (state.followMix && state.mixerHolds === 0) {
+      const lock = state.automation[step];
+      if (lock) {
+        set({
+          step,
+          crossfade: lock.crossfade,
+          master: lock.master,
+          decks: applyMix(state.decks, lock),
+        });
+        return;
+      }
     }
     set({ step });
   },
@@ -404,7 +404,7 @@ export const useApp = create<AppState>((set, get) => ({
       return;
     }
     const lock = state.automation[index];
-    if (lock && !state.playing) {
+    if (lock && state.followMix && !state.playing) {
       set({
         armStep: index,
         crossfade: lock.crossfade,

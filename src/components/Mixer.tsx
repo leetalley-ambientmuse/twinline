@@ -72,7 +72,7 @@ export function Mixer() {
     <section className="panel flex flex-col gap-4 p-3 sm:p-4">
       <header>
         <p className="text-xs tracking-widest text-muted uppercase">Booth</p>
-        <h2 className="text-xl font-semibold tracking-tight">Mixer</h2>
+        <h2 className="display text-xl font-semibold">Mixer</h2>
       </header>
       <div className="flex items-stretch justify-center gap-3">
         <div className="deck-a">
@@ -107,7 +107,9 @@ export function MixTrack() {
   const step = useApp((state) => state.step);
   const armStep = useApp((state) => state.armStep);
   const recording = useApp((state) => state.recording);
+  const followMix = useApp((state) => state.followMix);
   const setRecording = useApp((state) => state.setRecording);
+  const setFollowMix = useApp((state) => state.setFollowMix);
   const focusMixStep = useApp((state) => state.focusMixStep);
   const clearAutomation = useApp((state) => state.clearAutomation);
   const eraseMixStep = useApp((state) => state.eraseMixStep);
@@ -133,6 +135,17 @@ export function MixTrack() {
           </button>
           <button
             type="button"
+            className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line px-3 text-sm"
+            style={
+              followMix ? { background: "var(--color-amber)", color: "var(--color-ink)" } : undefined
+            }
+            aria-pressed={followMix}
+            onClick={() => setFollowMix(!followMix)}
+          >
+            Use track
+          </button>
+          <button
+            type="button"
             className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line bg-ink px-3 text-sm"
             onClick={() => eraseMixStep(step >= 0 ? step : armStep)}
           >
@@ -148,7 +161,7 @@ export function MixTrack() {
           </button>
         </div>
       </div>
-      <div className="step-grid">
+      <div className="step-grid" data-live={followMix ? "0" : "1"}>
         {automation.map((frame, index) => (
           <button
             key={index}
@@ -166,7 +179,7 @@ export function MixTrack() {
         ))}
       </div>
       <p className="text-xs text-muted">
-        Record while playing. A held fader prints onto each step the playhead crosses. Empty steps hold the last lock.
+        Faders stay where you set them. Turn Use track on to play the locks. Record prints the mixer onto the playhead.
       </p>
     </div>
   );

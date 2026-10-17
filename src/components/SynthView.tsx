@@ -44,7 +44,7 @@ export function SynthView({ deckId }: { deckId: DeckId }) {
         </button>
         <div className="text-right">
           <p className="text-xs tracking-widest text-muted uppercase">{NAMES[deckId]}</p>
-          <h2 className="text-lg font-semibold">{ENGINE_COPY[engine].label}</h2>
+          <h2 className="display text-lg font-semibold">{ENGINE_COPY[engine].label}</h2>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -302,7 +302,7 @@ function GrainVisual({ voice, patch }: { voice: VoiceId; patch: Patch }) {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    const color = getComputedStyle(canvas).color || "#e0a24a";
+    const color = getComputedStyle(canvas).color || "#ffb020";
     const count = Math.max(model.count * 3, 12);
     for (let i = 0; i < count; i++) {
       const n = hash(voice.length * 13 + i * 17 + Math.round(patch.a * 40) + Math.round(patch.d * 20));
@@ -347,7 +347,7 @@ function drawWave(canvas: HTMLCanvasElement, data: Float32Array): void {
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  ctx.strokeStyle = getComputedStyle(canvas).color || "#e0a24a";
+  ctx.strokeStyle = getComputedStyle(canvas).color || "#ffb020";
   ctx.lineWidth = 1.4;
   ctx.beginPath();
   const step = Math.max(1, Math.floor(data.length / width));

@@ -20,7 +20,7 @@ export function DeckPanel({ deckId }: { deckId: DeckId }) {
       <header className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs tracking-widest text-muted uppercase">Machine {deckId.toUpperCase()}</p>
-          <h2 className="text-xl font-semibold tracking-tight">{NAMES[deckId]}</h2>
+          <h2 className="display text-xl font-semibold">{NAMES[deckId]}</h2>
         </div>
         <button
           type="button"

@@ -47,7 +47,10 @@ export function TwinlineApp() {
         state.master !== previous.master ||
         state.crossfade !== previous.crossfade ||
         state.decks !== previous.decks;
-      const stored = audioChanged || state.automation !== previous.automation;
+      const stored =
+        audioChanged ||
+        state.automation !== previous.automation ||
+        state.followMix !== previous.followMix;
       if (!stored) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => persistState(state), 200);
@@ -106,22 +109,29 @@ export function TwinlineApp() {
 
   return (
     <RackProvider value={api}>
-      <div className="min-h-screen bg-ink text-cream" onPointerDownCapture={arm}>
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-3 py-3 sm:px-4">
+      <div className="night min-h-screen text-cream" onPointerDownCapture={arm}>
+        <div className="night-sky" aria-hidden="true">
+          <div className="night-sun" />
+          <div className="night-grid" />
+          <div className="night-scan" />
+        </div>
+        <div className="relative z-10">
+        <header className="chrome-bar flex flex-wrap items-center justify-between gap-3 border-b px-3 py-3 sm:px-4">
           <div className="flex items-center gap-3">
             <svg viewBox="0 0 32 32" className="size-8 shrink-0" aria-hidden="true">
-              <rect x="1" y="8" width="16" height="16" rx="2" fill="var(--color-amber)" />
-              <rect x="15" y="8" width="16" height="16" rx="2" fill="var(--color-lacquer)" />
+              <rect x="2" y="8" width="14" height="14" fill="var(--color-amber)" />
+              <rect x="16" y="8" width="14" height="14" fill="var(--color-lacquer)" />
+              <path d="M2 26 H30 M16 18 V30" stroke="var(--color-cyan)" strokeWidth="1.2" />
             </svg>
             <div>
-              <h1 className="text-lg leading-none font-semibold tracking-tight">{APP_NAME}</h1>
+              <h1 className="display text-lg leading-none font-semibold">{APP_NAME}</h1>
               <p className="mt-1 text-xs tracking-widest text-muted uppercase">{APP_TAG}</p>
             </div>
           </div>
           <Transport />
         </header>
         {armed ? null : (
-          <p className="border-b border-line bg-panel px-4 py-2 text-sm text-muted">
+          <p className="chrome-bar border-b px-4 py-2 text-sm text-muted">
             Press play to arm the engines. Patterns stay in this browser.
           </p>
         )}
@@ -143,7 +153,7 @@ export function TwinlineApp() {
             <section className="panel mx-3 mb-4 hidden p-4 lg:block">
               <MixTrack />
             </section>
-            <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t border-line bg-chassis lg:hidden">
+            <nav className="chrome-bar fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t lg:hidden">
               <PaneButton
                 active={mobilePane === "a"}
                 label="Amber"
@@ -165,6 +175,7 @@ export function TwinlineApp() {
             </nav>
           </>
         )}
+        </div>
       </div>
     </RackProvider>
   );
@@ -186,7 +197,7 @@ function PaneButton({
       type="button"
       aria-pressed={active}
       className="min-h-14 px-2"
-      style={active ? { boxShadow: "inset 0 2px 0 var(--color-cream)" } : undefined}
+      style={active ? { boxShadow: "inset 0 -2px 0 var(--color-cyan)", color: "var(--color-cyan)" } : undefined}
       onClick={onClick}
     >
       <span className="block text-sm font-medium">{label}</span>
