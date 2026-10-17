@@ -8,12 +8,14 @@ import { Transport } from "@/components/Transport";
 import { DeckPanel } from "@/components/DeckPanel";
 import { Mixer, MixTrack } from "@/components/Mixer";
 import { SynthView } from "@/components/SynthView";
+import { PromptWizard } from "@/components/PromptWizard";
 
 export function TwinlineApp() {
   const rackRef = useRef<Rack | null>(null);
   const playing = useApp((state) => state.playing);
   const armed = useApp((state) => state.armed);
   const synthDeck = useApp((state) => state.synthDeck);
+  const spell = useApp((state) => state.spell);
   const mobilePane = useApp((state) => state.mobilePane);
   const setMobilePane = useApp((state) => state.setMobilePane);
 
@@ -78,10 +80,11 @@ export function TwinlineApp() {
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.code !== "Space") return;
-      const target = event.target as HTMLElement | null;
-      if (!target) return;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.getAttribute("role") === "slider") {
-        return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.getAttribute("role") === "slider") {
+          return;
+        }
       }
       event.preventDefault();
       arm();
@@ -103,6 +106,10 @@ export function TwinlineApp() {
         rackRef.current?.preview(deck, voice);
       },
       readLevel: () => rackRef.current?.readLevel() ?? 0,
+      bounce: async (bars: number) => {
+        arm();
+        return rackRef.current!.bounce(bars);
+      },
     }),
     [arm],
   );
@@ -130,9 +137,14 @@ export function TwinlineApp() {
           </div>
           <Transport />
         </header>
-        {armed ? null : (
+        {spell ? (
+          <p className="chrome-bar border-b px-4 py-2 text-sm">
+            <span className="display text-xs text-cyan">{spell.title}</span>
+            <span className="text-muted"> — {spell.blurb}</span>
+          </p>
+        ) : armed ? null : (
           <p className="chrome-bar border-b px-4 py-2 text-sm text-muted">
-            Press play to arm the engines. Patterns stay in this browser.
+            Press play to arm the engines. Wizard writes both machines from a prompt.
           </p>
         )}
         {synthDeck ? (
@@ -175,6 +187,7 @@ export function TwinlineApp() {
             </nav>
           </>
         )}
+        <PromptWizard />
         </div>
       </div>
     </RackProvider>

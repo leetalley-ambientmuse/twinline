@@ -18,7 +18,7 @@ export type RackSnapshot = {
   decks: Record<
     DeckId,
     {
-      engine: EngineId;
+      engines: Record<VoiceId, EngineId>;
       swing: number;
       volume: number;
       eqLow: number;
@@ -157,6 +157,30 @@ export class Rack {
     }
   }
 
+  bounce(bars: number): Promise<Blob> {
+    const count = Math.min(8, Math.max(1, Math.round(bars)));
+    const snapshot = this.getState();
+    const bpm = Math.min(180, Math.max(70, snapshot.bpm));
+    const stepDur = 60 / bpm / 4;
+    const total = count * 16;
+    const seconds = total * stepDur + 1;
+    const offline = new OfflineAudioContext(2, Math.ceil(seconds * this.ctx.sampleRate), this.ctx.sampleRate);
+    const printer = new Rack(offline as unknown as AudioContext, () => snapshot, () => {});
+    printer.print(count);
+    return offline.startRendering().then((rendered) => encodeWav(rendered.getChannelData(0), rendered.sampleRate));
+  }
+
+  print(bars: number): void {
+    const bpm = Math.min(180, Math.max(70, this.getState().bpm));
+    const stepDur = 60 / bpm / 4;
+    const total = Math.min(8, Math.max(1, Math.round(bars))) * 16;
+    let time = 0.05;
+    for (let index = 0; index < total; index++) {
+      this.scheduleStep(index % 16, time);
+      time += stepDur;
+    }
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -183,8 +207,8 @@ export class Rack {
   preview(deck: DeckId, voice: VoiceId): void {
     const state = this.getState();
     const d = state.decks[deck];
-    const patch = d.patches[d.engine][voice];
-    this.trigger(deck, d.engine, voice, patch, this.ctx.currentTime + 0.02);
+    const patch = d.patches[d.engines[voice]][voice];
+    this.trigger(deck, d.engines[voice], voice, patch, this.ctx.currentTime + 0.02);
   }
 
   readLevel(): number {
@@ -233,8 +257,9 @@ export class Rack {
       const swung = time + (step % 2 === 1 ? deck.swing * stepDur * 0.5 : 0);
       for (const voice of VOICES) {
         if (!deck.steps[voice][step] || deck.mute[voice]) continue;
-        const patch = deck.patches[deck.engine][voice];
-        this.trigger(id, deck.engine, voice, patch, swung);
+        const engine = deck.engines[voice];
+        const patch = deck.patches[engine][voice];
+        this.trigger(id, engine, voice, patch, swung);
       }
     }
     this.queue.push({ step, time });
@@ -508,7 +533,7 @@ export class Rack {
     const sources: AudioBufferSourceNode[] = [];
     const peak = m.gain / Math.sqrt(m.count);
     for (let i = 0; i < m.count; i++) {
-      const spread = m.count <= 1 ? 0 : i / (m.count - 1);
+      const spread = i / (m.count - 1);
       const jitter = (Math.random() - 0.5) * m.spray * m.cloud * 0.85;
       const when = t + Math.max(0, spread * m.cloud + jitter);
       const posJitter = (Math.random() - 0.5) * m.spray * 0.45;
@@ -568,6 +593,37 @@ export class Rack {
       }
     }, ms);
   }
+}
+
+function encodeWav(mono: Float32Array, sampleRate: number): Blob {
+  const frames = mono.length;
+  const buffer = new ArrayBuffer(44 + frames * 4);
+  const view = new DataView(buffer);
+  const write = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  write(0, "RIFF");
+  view.setUint32(4, 36 + frames * 4, true);
+  write(8, "WAVE");
+  write(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 2, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 4, true);
+  view.setUint16(32, 4, true);
+  view.setUint16(34, 16, true);
+  write(36, "data");
+  view.setUint32(40, frames * 4, true);
+  let offset = 44;
+  for (let i = 0; i < frames; i++) {
+    const sample = Math.max(-1, Math.min(1, mono[i]));
+    const pcm = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    view.setInt16(offset, pcm, true);
+    view.setInt16(offset + 2, pcm, true);
+    offset += 4;
+  }
+  return new Blob([buffer], { type: "audio/wav" });
 }
 
 function toBuffer(ctx: AudioContext, data: Float32Array): AudioBuffer {
