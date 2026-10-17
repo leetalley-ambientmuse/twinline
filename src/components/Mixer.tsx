@@ -179,7 +179,13 @@ export function MixTrack() {
         ))}
       </div>
       <p className="text-xs text-muted">
-        Faders stay where you set them. Turn Use track on to play the locks. Record prints the mixer onto the playhead.
+        {recording
+          ? "Recording onto the playhead. Playback still follows the track only while Use track is on."
+          : followMix
+            ? "Use track is on. Each lock moves the faders as the pattern plays."
+            : locks > 0
+              ? `${locks} locks saved. Use track is off, so the faders stay where you set them.`
+              : "Faders stay where you set them. Record prints the mixer onto the playhead. Use track plays those locks."}
       </p>
     </div>
   );

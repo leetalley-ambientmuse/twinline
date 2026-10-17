@@ -5,12 +5,14 @@ type RackApi = {
   arm: () => void;
   preview: (deck: DeckId, voice: VoiceId) => void;
   readLevel: () => number;
+  bounce: (bars: number) => Promise<Blob | null>;
 };
 
 const RackContext = createContext<RackApi>({
   arm: () => {},
   preview: () => {},
   readLevel: () => 0,
+  bounce: async () => null,
 });
 
 export const RackProvider = RackContext.Provider;

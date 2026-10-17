@@ -15,11 +15,12 @@ import {
   type VoiceId,
 } from "@/lib/audio/model";
 import type { RackSnapshot } from "@/lib/audio/engine";
+import type { CompiledTrack, MixLock } from "@/lib/prompt/arrange";
 
 const KEY = "twinline-v1";
 
 export type DeckState = {
-  engine: EngineId;
+  engines: Record<VoiceId, EngineId>;
   swing: number;
   volume: number;
   eqLow: number;
@@ -28,6 +29,15 @@ export type DeckState = {
   filter: number;
   mute: Record<VoiceId, boolean>;
   steps: Record<VoiceId, boolean[]>;
+  patches: Record<EngineId, Record<VoiceId, Patch>>;
+};
+
+export type GrooveSnap = {
+  deck: DeckId;
+  steps: Record<VoiceId, boolean[]>;
+  mute: Record<VoiceId, boolean>;
+  swing: number;
+  engines: Record<VoiceId, EngineId>;
   patches: Record<EngineId, Record<VoiceId, Patch>>;
 };
 
@@ -46,6 +56,12 @@ export type MixFrame = {
   master: number;
 };
 
+export type SpellNote = {
+  title: string;
+  blurb: string;
+  roles: Record<DeckId, string>;
+};
+
 export type AppState = {
   armed: boolean;
   playing: boolean;
@@ -61,6 +77,9 @@ export type AppState = {
   mobilePane: "a" | "mix" | "b";
   synthDeck: DeckId | null;
   decks: Record<DeckId, DeckState>;
+  history: GrooveSnap[];
+  spell: SpellNote | null;
+  wizardOpen: boolean;
   setPlaying: (playing: boolean) => void;
   setRecording: (recording: boolean) => void;
   setFollowMix: (followMix: boolean) => void;
@@ -76,7 +95,7 @@ export type AppState = {
   setMobilePane: (pane: "a" | "mix" | "b") => void;
   openSynth: (deck: DeckId) => void;
   closeSynth: () => void;
-  setEngine: (deck: DeckId, engine: EngineId) => void;
+  setEngine: (deck: DeckId, voice: VoiceId, engine: EngineId) => void;
   setSwing: (deck: DeckId, swing: number) => void;
   setVolume: (deck: DeckId, volume: number) => void;
   setEq: (deck: DeckId, band: "eqLow" | "eqMid" | "eqHigh" | "filter", value: number) => void;
@@ -84,14 +103,22 @@ export type AppState = {
   toggleMute: (deck: DeckId, voice: VoiceId) => void;
   clearDeck: (deck: DeckId) => void;
   randomizeDeck: (deck: DeckId) => void;
+  undoDeck: (deck: DeckId) => void;
+  copyPattern: (from: DeckId, to: DeckId) => void;
   setPatch: (deck: DeckId, engine: EngineId, voice: VoiceId, key: PatchKey, value: number) => void;
   resetVoice: (deck: DeckId, engine: EngineId, voice: VoiceId) => void;
   jitterVoice: (deck: DeckId, engine: EngineId, voice: VoiceId) => void;
   snapshot: () => RackSnapshot;
+  applyArrangement: (track: CompiledTrack) => void;
+  setWizardOpen: (open: boolean) => void;
 };
 
 function muteOff(): Record<VoiceId, boolean> {
   return { kick: false, snare: false, hat: false, perc: false };
+}
+
+function voiceEngines(engine: EngineId): Record<VoiceId, EngineId> {
+  return { kick: engine, snare: engine, hat: engine, perc: engine };
 }
 
 function makeDeck(
@@ -100,7 +127,7 @@ function makeDeck(
   steps: Record<VoiceId, boolean[]>,
 ): DeckState {
   return {
-    engine,
+    engines: voiceEngines(engine),
     swing,
     volume: 0.86,
     eqLow: 0.5,
@@ -143,12 +170,30 @@ function isPatch(value: unknown): value is Patch {
   );
 }
 
+function readEngines(saved: { engine?: unknown; engines?: unknown }, fallback: Record<VoiceId, EngineId>) {
+  const raw = saved.engines;
+  if (raw && typeof raw === "object") {
+    const next = { ...fallback };
+    let found = false;
+    for (const voice of VOICES) {
+      const value = (raw as Record<string, unknown>)[voice];
+      if (isEngine(value)) {
+        next[voice] = value;
+        found = true;
+      }
+    }
+    if (found) return next;
+  }
+  if (isEngine(saved.engine)) return voiceEngines(saved.engine);
+  return fallback;
+}
+
 function mergeDeck(base: DeckState, raw: unknown): DeckState {
   if (!raw || typeof raw !== "object") return base;
-  const saved = raw as Partial<DeckState> & { patches?: unknown };
+  const saved = raw as Partial<DeckState> & { patches?: unknown; engine?: unknown };
   const next: DeckState = {
     ...base,
-    engine: isEngine(saved.engine) ? saved.engine : base.engine,
+    engines: readEngines(saved, base.engines),
     swing: typeof saved.swing === "number" ? clamp01(saved.swing) : base.swing,
     volume: typeof saved.volume === "number" ? clamp01(saved.volume) : base.volume,
     eqLow: typeof saved.eqLow === "number" ? clamp01(saved.eqLow) : base.eqLow,
@@ -283,7 +328,7 @@ function writeLock(
 }
 
 export function loadSaved(): Partial<
-  Pick<AppState, "bpm" | "crossfade" | "master" | "decks" | "automation" | "followMix">
+  Pick<AppState, "bpm" | "crossfade" | "master" | "decks" | "automation" | "followMix" | "spell">
 > | null {
   if (typeof window === "undefined") return null;
   try {
@@ -296,6 +341,7 @@ export function loadSaved(): Partial<
       decks?: { a?: unknown; b?: unknown };
       automation?: unknown;
       followMix?: unknown;
+      spell?: unknown;
     };
     const base = factoryDecks();
     const automation = parseAutomation(data.automation);
@@ -309,6 +355,7 @@ export function loadSaved(): Partial<
       },
       ...(automation ? { automation } : {}),
       followMix: data.followMix === true,
+      spell: readSpell(data.spell),
     };
   } catch {
     return null;
@@ -324,8 +371,87 @@ export function persistState(state: AppState): void {
     decks: state.decks,
     automation: state.automation,
     followMix: state.followMix,
+    spell: state.spell,
   };
   window.localStorage.setItem(KEY, JSON.stringify(payload));
+}
+
+function cloneSteps(steps: Record<VoiceId, boolean[]>): Record<VoiceId, boolean[]> {
+  return {
+    kick: steps.kick.slice(),
+    snare: steps.snare.slice(),
+    hat: steps.hat.slice(),
+    perc: steps.perc.slice(),
+  };
+}
+
+function remember(state: AppState, deck: DeckId): GrooveSnap[] {
+  const current = state.decks[deck];
+  const snap: GrooveSnap = {
+    deck,
+    steps: cloneSteps(current.steps),
+    mute: { ...current.mute },
+    swing: current.swing,
+    engines: { ...current.engines },
+    patches: structuredClone(current.patches),
+  };
+  return [...state.history, snap].slice(-24);
+}
+
+export function downloadProject(): void {
+  const state = useApp.getState();
+  const payload = {
+    version: 2,
+    bpm: state.bpm,
+    crossfade: state.crossfade,
+    master: state.master,
+    decks: state.decks,
+    automation: state.automation,
+    followMix: state.followMix,
+    spell: state.spell,
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "twinline.json";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export function importProject(raw: string): boolean {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (!data || typeof data !== "object") return false;
+  const record = data as {
+    bpm?: unknown;
+    crossfade?: unknown;
+    master?: unknown;
+    decks?: { a?: unknown; b?: unknown };
+    automation?: unknown;
+    followMix?: unknown;
+    spell?: unknown;
+  };
+  const base = factoryDecks();
+  const automation = parseAutomation(record.automation);
+  useApp.setState({
+    bpm: typeof record.bpm === "number" ? Math.min(180, Math.max(70, record.bpm)) : useApp.getState().bpm,
+    crossfade: typeof record.crossfade === "number" ? clamp01(record.crossfade) : useApp.getState().crossfade,
+    master: typeof record.master === "number" ? clamp01(record.master) : useApp.getState().master,
+    decks: {
+      a: mergeDeck(base.a, record.decks?.a),
+      b: mergeDeck(base.b, record.decks?.b),
+    },
+    ...(automation ? { automation } : {}),
+    followMix: record.followMix === true,
+    spell: readSpell(record.spell),
+    history: [],
+  });
+  return true;
 }
 
 function updateDeck(
@@ -334,6 +460,41 @@ function updateDeck(
   patch: (deck: DeckState) => DeckState,
 ): Record<DeckId, DeckState> {
   return { ...decks, [id]: patch(decks[id]) };
+}
+
+function readSpell(value: unknown): SpellNote | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as { title?: unknown; blurb?: unknown; roles?: { a?: unknown; b?: unknown } };
+  if (typeof record.title !== "string" || typeof record.blurb !== "string") return null;
+  return {
+    title: record.title.slice(0, 42),
+    blurb: record.blurb.slice(0, 180),
+    roles: {
+      a: typeof record.roles?.a === "string" ? record.roles.a.slice(0, 36) : "",
+      b: typeof record.roles?.b === "string" ? record.roles.b.slice(0, 36) : "",
+    },
+  };
+}
+
+function applyDeckPlan(current: DeckState, plan: CompiledTrack["decks"]["a"], frame: MixLock, id: DeckId): DeckState {
+  const patches = structuredClone(current.patches);
+  for (const voice of VOICES) {
+    patches[plan.engines[voice]][voice] = { ...plan.patches[voice] };
+  }
+  const amber = id === "a";
+  return {
+    ...current,
+    swing: plan.swing,
+    volume: amber ? frame.aVol : frame.bVol,
+    eqLow: amber ? frame.aLo : frame.bLo,
+    eqMid: amber ? frame.aMid : frame.bMid,
+    eqHigh: amber ? frame.aHi : frame.bHi,
+    filter: amber ? frame.aFlt : frame.bFlt,
+    engines: { ...plan.engines },
+    mute: { ...plan.mute },
+    steps: cloneSteps(plan.steps),
+    patches,
+  };
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -351,6 +512,9 @@ export const useApp = create<AppState>((set, get) => ({
   mobilePane: "a",
   synthDeck: null,
   decks: factoryDecks(),
+  history: [],
+  spell: null,
+  wizardOpen: false,
   setPlaying: (playing) => set({ playing }),
   setRecording: (recording) => set({ recording }),
   setFollowMix: (followMix) => set({ followMix }),
@@ -426,9 +590,12 @@ export const useApp = create<AppState>((set, get) => ({
   setMobilePane: (mobilePane) => set({ mobilePane }),
   openSynth: (synthDeck) => set({ synthDeck }),
   closeSynth: () => set({ synthDeck: null }),
-  setEngine: (deck, engine) =>
+  setEngine: (deck, voice, engine) =>
     set((state) => ({
-      decks: updateDeck(state.decks, deck, (current) => ({ ...current, engine })),
+      decks: updateDeck(state.decks, deck, (current) => ({
+        ...current,
+        engines: { ...current.engines, [voice]: engine },
+      })),
     })),
   setSwing: (deck, swing) =>
     set((state) => ({
@@ -469,12 +636,54 @@ export const useApp = create<AppState>((set, get) => ({
     })),
   clearDeck: (deck) =>
     set((state) => ({
+      history: remember(state, deck),
       decks: updateDeck(state.decks, deck, (current) => ({ ...current, steps: emptySteps() })),
     })),
   randomizeDeck: (deck) =>
     set((state) => ({
+      history: remember(state, deck),
       decks: updateDeck(state.decks, deck, (current) => ({ ...current, steps: randomSteps() })),
     })),
+  undoDeck: (deck) => {
+    const state = get();
+    let index = -1;
+    for (let i = state.history.length - 1; i >= 0; i--) {
+      if (state.history[i].deck === deck) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) return;
+    const snap = state.history[index];
+    set({
+      history: state.history.filter((_, i) => i !== index),
+      decks: updateDeck(state.decks, deck, (current) => ({
+        ...current,
+        steps: cloneSteps(snap.steps),
+        mute: { ...snap.mute },
+        swing: snap.swing,
+        engines: { ...snap.engines },
+        patches: structuredClone(snap.patches),
+      })),
+    });
+  },
+  copyPattern: (from, to) => {
+    if (from === to) return;
+    set((state) => {
+      const source = state.decks[from];
+      return {
+        history: remember(state, to),
+        decks: updateDeck(state.decks, to, (current) => ({
+          ...current,
+          steps: cloneSteps(source.steps),
+          mute: { ...source.mute },
+          swing: source.swing,
+          engines: { ...source.engines },
+          patches: structuredClone(source.patches),
+        })),
+      };
+    });
+  },
   setPatch: (deck, engine, voice, key, value) =>
     set((state) => ({
       decks: updateDeck(state.decks, deck, (current) => ({
@@ -527,4 +736,33 @@ export const useApp = create<AppState>((set, get) => ({
       decks: state.decks,
     };
   },
+  applyArrangement: (track) => {
+    const state = get();
+    const remembered = remember({ ...state, history: remember(state, "a") }, "b");
+    const index = state.playing && state.step >= 0 ? state.step : 0;
+    const frame = track.automation[index] ?? track.automation[0];
+    const decks = applyMix(
+      {
+        a: applyDeckPlan(state.decks.a, track.decks.a, frame, "a"),
+        b: applyDeckPlan(state.decks.b, track.decks.b, frame, "b"),
+      },
+      frame,
+    );
+    set({
+      history: remembered,
+      bpm: track.bpm,
+      followMix: track.followMix,
+      crossfade: frame.crossfade,
+      master: frame.master,
+      automation: track.automation,
+      decks,
+      synthDeck: null,
+      spell: {
+        title: track.title,
+        blurb: track.blurb,
+        roles: { a: track.decks.a.role, b: track.decks.b.role },
+      },
+    });
+  },
+  setWizardOpen: (wizardOpen) => set({ wizardOpen }),
 }));

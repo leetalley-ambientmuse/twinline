@@ -25,10 +25,10 @@ import { useRack } from "@/components/rack-context";
 const NAMES: Record<DeckId, string> = { a: "Amber", b: "Lacquer" };
 
 export function SynthView({ deckId }: { deckId: DeckId }) {
-  const engine = useApp((state) => state.decks[deckId].engine);
+  const [voice, setVoice] = useState<VoiceId>("kick");
+  const engine = useApp((state) => state.decks[deckId].engines[voice]);
   const setEngine = useApp((state) => state.setEngine);
   const closeSynth = useApp((state) => state.closeSynth);
-  const [voice, setVoice] = useState<VoiceId>("kick");
   const accent = deckId === "a" ? "deck-a" : "deck-b";
 
   return (
@@ -47,6 +47,24 @@ export function SynthView({ deckId }: { deckId: DeckId }) {
           <h2 className="display text-lg font-semibold">{ENGINE_COPY[engine].label}</h2>
         </div>
       </div>
+      <div className="grid grid-cols-4 gap-2">
+        {VOICES.map((id) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={voice === id}
+            className="min-h-11 rounded-md border border-line text-xs tracking-widest uppercase"
+            style={
+              voice === id
+                ? { background: "var(--deck)", color: "var(--color-ink)", borderColor: "transparent" }
+                : { background: "var(--color-panel)" }
+            }
+            onClick={() => setVoice(id)}
+          >
+            {VOICE_LABEL[id]}
+          </button>
+        ))}
+      </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {ENGINES.map((id) => (
           <button
@@ -55,14 +73,14 @@ export function SynthView({ deckId }: { deckId: DeckId }) {
             aria-pressed={engine === id}
             className="min-h-14 rounded-lg border border-line bg-panel px-3 text-left"
             style={engine === id ? { boxShadow: "inset 0 -3px 0 var(--deck)" } : undefined}
-            onClick={() => setEngine(deckId, id)}
+            onClick={() => setEngine(deckId, voice, id)}
           >
             <span className="block text-sm font-medium">{ENGINE_COPY[id].label}</span>
             <span className="block text-xs text-muted">{ENGINE_COPY[id].kicker}</span>
           </button>
         ))}
       </div>
-      <Editor deckId={deckId} engine={engine} voice={voice} onVoice={setVoice} />
+      <Editor deckId={deckId} engine={engine} voice={voice} />
       <section className="panel p-3 sm:p-4">
         <p className="mb-3 text-xs tracking-widest text-muted uppercase">Pattern</p>
         <StepGrid deckId={deckId} />
@@ -75,12 +93,10 @@ function Editor({
   deckId,
   engine,
   voice,
-  onVoice,
 }: {
   deckId: DeckId;
   engine: EngineId;
   voice: VoiceId;
-  onVoice: (voice: VoiceId) => void;
 }) {
   const patch = useApp((state) => state.decks[deckId].patches[engine][voice]);
   const setPatch = useApp((state) => state.setPatch);
@@ -92,24 +108,6 @@ function Editor({
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       <section className="panel flex flex-col gap-4 p-4">
-        <div className="grid grid-cols-4 gap-2">
-          {VOICES.map((id) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={voice === id}
-              className="min-h-11 rounded-md border border-line text-xs tracking-widest uppercase"
-              style={
-                voice === id
-                  ? { background: "var(--deck)", color: "var(--color-ink)", borderColor: "transparent" }
-                  : undefined
-              }
-              onClick={() => onVoice(id)}
-            >
-              {VOICE_LABEL[id]}
-            </button>
-          ))}
-        </div>
         {engine === "sample" ? <SampleVisual voice={voice} patch={patch} /> : null}
         {engine === "fm" ? <FmVisual voice={voice} patch={patch} /> : null}
         {engine === "physical" ? <PhysicalVisual voice={voice} patch={patch} /> : null}
