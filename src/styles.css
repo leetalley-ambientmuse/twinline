@@ -1,0 +1,332 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #141210;
+  --color-chassis: #1c1814;
+  --color-panel: #26211c;
+  --color-panel-2: #322c26;
+  --color-line: #3d352e;
+  --color-cream: #f3eadc;
+  --color-muted: #a89884;
+  --color-amber: #e0a24a;
+  --color-amber-dim: #8a6230;
+  --color-lacquer: #d15a42;
+  --color-lacquer-dim: #7c3428;
+  --font-sans: "Outfit", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-pad: 0.45rem;
+  --radius-panel: 0.9rem;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  [role="slider"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body {
+    background: var(--color-ink);
+    color: var(--color-cream);
+    font-family: var(--font-sans);
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-cream);
+    outline-offset: 2px;
+  }
+}
+
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-panel);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--color-cream) 7%, transparent);
+}
+
+.deck-a {
+  --deck: var(--color-amber);
+  --deck-dim: var(--color-amber-dim);
+}
+
+.deck-b {
+  --deck: var(--color-lacquer);
+  --deck-dim: var(--color-lacquer-dim);
+}
+
+.booth {
+  display: block;
+}
+
+.step-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.25rem;
+  touch-action: none;
+}
+
+.step {
+  height: 2.75rem;
+  border-radius: var(--radius-pad);
+  background: var(--color-ink);
+  border: 1px solid var(--color-line);
+  transition:
+    transform 90ms ease,
+    background-color 90ms ease,
+    box-shadow 90ms ease;
+}
+
+.step[data-bar="1"] {
+  background: color-mix(in oklab, var(--color-cream) 5%, var(--color-ink));
+}
+
+.step[data-on="1"] {
+  background: var(--deck);
+  border-color: transparent;
+  box-shadow: 0 0 12px color-mix(in oklab, var(--deck) 50%, transparent);
+}
+
+.step[data-play="1"] {
+  box-shadow:
+    inset 0 0 0 2px var(--color-cream),
+    0 0 10px color-mix(in oklab, var(--deck) 35%, transparent);
+}
+
+.step[data-on="1"][data-play="1"] {
+  filter: brightness(1.18);
+}
+
+.step:active {
+  transform: scale(0.92);
+}
+
+.mix-cell {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+}
+
+.mix-cell[data-on="1"] {
+  background: var(--color-ink);
+  border-color: var(--color-line);
+  box-shadow: none;
+  filter: none;
+}
+
+.mix-cell[data-play="1"],
+.step.mix-cell[data-on="1"][data-play="1"] {
+  filter: none;
+  box-shadow: inset 0 0 0 2px var(--color-cream);
+}
+
+.mix-glyph {
+  position: absolute;
+  inset: 0.2rem;
+}
+
+.mix-a,
+.mix-b {
+  position: absolute;
+  bottom: 0;
+  width: 28%;
+  border-radius: 2px;
+}
+
+.mix-a {
+  left: 8%;
+  background: var(--color-amber);
+}
+
+.mix-b {
+  right: 8%;
+  background: var(--color-lacquer);
+}
+
+.mix-x {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-cream);
+  transform: translateX(-50%);
+}
+
+.led {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 1px solid var(--color-line);
+}
+
+.led[data-on="1"] {
+  background: var(--deck);
+  border-color: transparent;
+  box-shadow: 0 0 8px var(--deck);
+}
+
+.knob {
+  position: relative;
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background:
+    radial-gradient(circle at 50% 42%, var(--color-panel-2), var(--color-ink) 72%);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--color-cream) 12%, transparent);
+  touch-action: none;
+}
+
+.knob[data-size="sm"] {
+  width: 3rem;
+  height: 3rem;
+}
+
+.knob-rotor {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+}
+
+.knob-pointer {
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  width: 2px;
+  height: 26%;
+  border-radius: 999px;
+  background: var(--deck, var(--color-amber));
+  transform: translateX(-50%);
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 2.75rem;
+  background: transparent;
+  touch-action: none;
+}
+
+.slider::-webkit-slider-runnable-track {
+  height: 0.3rem;
+  background: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: -0.48rem;
+  border-radius: 999px;
+  background: var(--deck, var(--color-cream));
+  border: 2px solid var(--color-cream);
+}
+
+.slider::-moz-range-track {
+  height: 0.3rem;
+  background: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+}
+
+.slider::-moz-range-thumb {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: var(--deck, var(--color-cream));
+  border: 2px solid var(--color-cream);
+}
+
+.fader {
+  position: relative;
+  width: 2.75rem;
+  height: 11rem;
+  touch-action: none;
+}
+
+.fader-track {
+  position: absolute;
+  inset: 0.4rem 50% 0.4rem 50%;
+  width: 0.35rem;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--color-ink);
+  border: 1px solid var(--color-line);
+}
+
+.fader-fill {
+  position: absolute;
+  left: 50%;
+  width: 0.35rem;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--deck, var(--color-amber));
+}
+
+.fader-cap {
+  position: absolute;
+  left: 50%;
+  width: 2rem;
+  height: 0.85rem;
+  transform: translate(-50%, -50%);
+  border-radius: 0.2rem;
+  background: var(--color-cream);
+  box-shadow: 0 1px 0 var(--color-line);
+}
+
+.meter-seg {
+  flex: 1;
+  border-radius: 1px;
+  background: var(--color-panel-2);
+}
+
+.meter-seg[data-on="1"] {
+  background: var(--color-amber);
+}
+
+.meter-seg[data-on="1"][data-hot="1"] {
+  background: var(--color-lacquer);
+}
+
+.mark {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .booth {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 17rem minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  .step-grid {
+    grid-template-columns: repeat(16, minmax(0, 1fr));
+  }
+
+  .step {
+    height: 2.35rem;
+  }
+
+  .led-row {
+    display: grid;
+    grid-template-columns: repeat(16, minmax(0, 1fr));
+    gap: 0.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step,
+  .knob-pointer {
+    transition: none;
+  }
+}
