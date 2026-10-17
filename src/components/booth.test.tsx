@@ -104,18 +104,10 @@ describe("booth", () => {
 
     click(/^Sample$/);
     click(/^Hat$/);
-    let found = "none";
-    try {
-      found = String(screen.getAllByRole("button", { name: /FM/ }).length);
-    } catch (error) {
-      found = error instanceof Error ? error.message.slice(0, 180) : "err";
-    }
-    throw new Error(`found=${found}`);
-
     click("Hat");
     click(/FM/);
-    click("Physical");
-    click("Granular");
+    click(/^Physical/);
+    click(/^Granular/);
     click(/^Sample/);
     click("Hit");
     click("Reset");
@@ -157,14 +149,14 @@ describe("booth", () => {
       type: "application/json",
     });
     fireEvent.change(input, { target: { files: [file] } });
-    expect(useApp.getState().bpm).toBe(100);
+    await waitFor(() => expect(useApp.getState().bpm).toBe(100));
 
     click("Bounce");
     await waitFor(() => expect(names).toContain("twinline.wav"));
 
-    click("Mix");
-    click("Lacquer");
-    click("Amber");
+    click(/^Mix Cross/);
+    click(/^Lacquer/);
+    click(/^Amber/);
 
     const slider = document.createElement("input");
     document.body.appendChild(slider);
