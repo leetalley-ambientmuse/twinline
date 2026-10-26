@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -301,73 +301,104 @@ test("cli: a non-game with a compliant card passes", () => {
   assert.deepEqual(JSON.parse(run.stdout).messages, []);
 });
 
-// --- the prompts are the only enforcement here, so pin them to the code ---
+// The og skill is local agent tooling under gitignored `.grok/`. These tests
+// pin the contract a skill document has with the CLIs. The fixture is that
+// contract. A checkout that also has the real skill is held to the same checks.
+const SKILL_FIXTURE_DIR = join(TEMPLATE_ROOT, "scripts/fixtures/og-skill");
+const REAL_OG_DIR = join(TEMPLATE_ROOT, ".grok/skills/og");
+const REAL_OG_SKILL = join(REAL_OG_DIR, "SKILL.md");
+const realOgSkillPresent = existsSync(REAL_OG_SKILL);
 
-const readDoc = (rel) => readFileSync(join(TEMPLATE_ROOT, rel), "utf8");
-
-test("SKILL.md and AGENTS.md name the marker path and bound this script uses", () => {
+function markerAndBound(doc, label) {
   // Prose wraps, so the minute count may straddle a line break.
   const bound = new RegExp(`${OG_PENDING_MAX_AGE_MS / 60_000}\\s+minutes`);
-  for (const rel of [".grok/skills/og/SKILL.md", "AGENTS.md"]) {
-    const doc = readDoc(rel);
-    assert.ok(doc.includes(`/workspace/${OG_PENDING_REL_PATH}`), `${rel}: marker path`);
-    assert.ok(bound.test(doc), `${rel}: staleness bound`);
-  }
+  assert.ok(doc.includes(`/workspace/${OG_PENDING_REL_PATH}`), `${label}: marker path`);
+  assert.ok(bound.test(doc), `${label}: staleness bound`);
+}
+
+test("SKILL.md and AGENTS.md name the marker path and bound this script uses", () => {
+  markerAndBound(readFileSync(join(SKILL_FIXTURE_DIR, "SKILL.md"), "utf8"), "og skill fixture");
+  markerAndBound(readFileSync(join(TEMPLATE_ROOT, "AGENTS.md"), "utf8"), "AGENTS.md");
 });
+
+test(
+  "the checkout og skill names the marker path and bound",
+  { skip: realOgSkillPresent ? false : ".grok/skills/og is absent. The fixture holds the contract." },
+  () => {
+    markerAndBound(readFileSync(REAL_OG_SKILL, "utf8"), REAL_OG_SKILL);
+  },
+);
 
 // The two places that own "never wait on the brand task". Scanning the whole
 // of AGENTS.md instead would make every unrelated `wait_tasks` mention a future
 // feature adds to it this test's business.
-const PROHIBITION_SECTIONS = [
-  {
-    rel: ".grok/skills/og/SKILL.md",
-    label: '§ "Brand-asset pass"',
-    from: "## Brand-asset pass:",
-    until: /\n## /,
-  },
-  {
-    rel: "AGENTS.md",
-    label: "execution loop step 6",
-    from: "6. **Brand-asset pass",
-    until: /\n7\. /,
-  },
-];
-
-function prohibitionSection({ rel, label, from, until }) {
-  const doc = readDoc(rel);
+function prohibitionProse(doc, { label, from, until }) {
   const start = doc.indexOf(from);
-  assert.notEqual(start, -1, `${rel}: ${label} moved — no "${from.trim()}"`);
+  assert.notEqual(start, -1, `${label}: moved — no "${from.trim()}"`);
   const rest = doc.slice(start + from.length);
   const end = rest.search(until);
   // Markdown emphasis and prose wrapping both sit between the two words.
   return (from + (end === -1 ? rest : rest.slice(0, end))).replace(/[`*]/g, "").replace(/\s+/g, " ");
 }
 
-test("the sections that own the brand-task prohibition never affirm a wait", () => {
+function assertProhibition(doc, section) {
   // Pinned on the shape of the prohibition, not on a negation being somewhere
   // nearby: "So: wait_tasks before the final verify, but never get_task_output"
   // keeps a negation in the sentence while instructing exactly the wait.
   const connectors = /(?:\s|[/,;]|\band\b|\bor\b|\bwait_tasks\b|\bget_task_output\b)+$/i;
   const negation = /\b(?:no|never|not|don['’]t)$/i;
-  for (const section of PROHIBITION_SECTIONS) {
-    const where = `${section.rel} ${section.label}`;
-    const prose = prohibitionSection(section);
-    const mentions = [...prose.matchAll(/wait_tasks|get_task_output/g)];
-    assert.ok(mentions.length >= 2, `${where}: the prohibition itself went missing`);
-    for (const match of mentions) {
-      const before = prose.slice(0, match.index).replace(connectors, "");
-      const context = prose.slice(Math.max(0, match.index - 60), match.index + 20);
-      assert.ok(negation.test(before), `${where}: not a prohibition: …${context}…`);
-    }
+  const prose = prohibitionProse(doc, section);
+  const mentions = [...prose.matchAll(/wait_tasks|get_task_output/g)];
+  assert.ok(mentions.length >= 2, `${section.label}: the prohibition itself went missing`);
+  for (const match of mentions) {
+    const before = prose.slice(0, match.index).replace(connectors, "");
+    const context = prose.slice(Math.max(0, match.index - 60), match.index + 20);
+    assert.ok(negation.test(before), `${section.label}: not a prohibition: …${context}…`);
   }
+}
+
+test("the sections that own the brand-task prohibition never affirm a wait", () => {
+  assertProhibition(readFileSync(join(SKILL_FIXTURE_DIR, "SKILL.md"), "utf8"), {
+    label: 'og skill fixture § "Brand-asset pass"',
+    from: "## Brand-asset pass:",
+    until: /\n## /,
+  });
+  assertProhibition(readFileSync(join(TEMPLATE_ROOT, "AGENTS.md"), "utf8"), {
+    label: "AGENTS.md execution loop step 6",
+    from: "6. **Brand-asset pass",
+    until: /\n7\. /,
+  });
 });
 
-test("SKILL.md tells the pass to self-check with the flag this CLI accepts", () => {
-  const skill = readDoc(".grok/skills/og/SKILL.md");
+test(
+  "the checkout og skill prohibition never affirms a wait",
+  { skip: realOgSkillPresent ? false : ".grok/skills/og is absent. The fixture holds the contract." },
+  () => {
+    assertProhibition(readFileSync(REAL_OG_SKILL, "utf8"), {
+      label: '.grok/skills/og § "Brand-asset pass"',
+      from: "## Brand-asset pass:",
+      until: /\n## /,
+    });
+  },
+);
+
+function assertBrandCheckInvocations(skill) {
   const invocations = skill.match(/node scripts\/brand-check\.mjs[^\n`]*/g) ?? [];
   assert.ok(invocations.length > 0);
   for (const line of invocations) {
     const argv = line.replace("node scripts/brand-check.mjs", "").trim().split(/\s+/);
     assert.equal(parseBrandCheckArgs(argv.filter(Boolean)).error, undefined, line);
   }
+}
+
+test("SKILL.md tells the pass to self-check with the flag this CLI accepts", () => {
+  assertBrandCheckInvocations(readFileSync(join(SKILL_FIXTURE_DIR, "SKILL.md"), "utf8"));
 });
+
+test(
+  "the checkout og skill self-check lines are flags this CLI accepts",
+  { skip: realOgSkillPresent ? false : ".grok/skills/og is absent. The fixture holds the contract." },
+  () => {
+    assertBrandCheckInvocations(readFileSync(REAL_OG_SKILL, "utf8"));
+  },
+);
