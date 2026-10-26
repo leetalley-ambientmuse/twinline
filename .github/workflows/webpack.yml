@@ -12,6 +12,7 @@ jobs:
 
     env:
       VITE_AUTH_ENABLED: 'false'
+      GROK_PREVIEW_CLIENT_SECRET: ci-dummy-preview-secret
 
     strategy:
       matrix:
