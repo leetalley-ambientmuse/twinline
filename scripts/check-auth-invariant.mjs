@@ -23,7 +23,7 @@
  * `compareAuthInvariant()` rather than re-deriving it.
  */
 import { APP_ENV_ROUTE } from "./app-env-plugin.mjs";
-import { isMainModule, mergeAppEnv, projectRoot, readAppEnv } from "./with-app-env.mjs";
+import { isMainModule, projectRoot, readAppEnv } from "./with-app-env.mjs";
 
 const DEFAULT_DEV_URL = "http://127.0.0.1:8080";
 
@@ -83,10 +83,15 @@ export function authInvariantWarnings(result) {
   return result.status === "diverged" ? [result.message] : [];
 }
 
-/** What `vite build` / `vite preview` will resolve, via the same wrapper. */
+/**
+ * What `vite build` / `vite preview` will resolve, via the same wrapper.
+ *
+ * `processEnv` is the env source `readAppEnv` merges over the file. The
+ * default is `process.env`. `{}` means "file only". A missing
+ * `VITE_AUTH_ENABLED` is auth on. The string `"false"` is auth off.
+ */
 export function buildAuthEnabled(root = projectRoot(), processEnv = process.env) {
-  const env = mergeAppEnv(readAppEnv(root), processEnv);
-  return authEnabledFromEnvValue(env.VITE_AUTH_ENABLED);
+  return authEnabledFromEnvValue(readAppEnv(root, processEnv).VITE_AUTH_ENABLED);
 }
 
 async function main(argv) {
