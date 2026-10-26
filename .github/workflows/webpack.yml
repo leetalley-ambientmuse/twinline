@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      VITE_AUTH_ENABLED: 'false'
       GROK_PREVIEW_CLIENT_SECRET: ci-dummy-preview-secret
 
     strategy:
@@ -37,4 +36,6 @@ jobs:
       run: npm test
 
     - name: Build
+      env:
+        VITE_AUTH_ENABLED: 'false'
       run: npx vite build
