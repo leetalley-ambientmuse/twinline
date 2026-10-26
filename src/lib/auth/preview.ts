@@ -10,15 +10,31 @@
  * injection. When deployed the deployer injects a per-app
  * `GROK_AUTH_*` that overrides these (see `server.ts`).
  *
- * These MUST equal the broker's `GROK_PREVIEW_CLIENT_ID` /
- * `GROK_PREVIEW_CLIENT_SECRET` (set in the broker's Vercel env; the broker stores
- * only the secret's `base64url(SHA-256)` hash). This is a dedicated, low-privilege
- * client (preview-only, `*.grok-sandbox.com`) — rotate it by regenerating the
- * broker env var and this constant together.
+ * The client id is public and matches the broker's `GROK_PREVIEW_CLIENT_ID`.
+ * The client secret is `GROK_PREVIEW_CLIENT_SECRET` in the server environment.
+ * It must match the broker value whose `base64url(SHA-256)` hash the broker
+ * stores. Never prefix it with `VITE_`. A `VITE_` variable is bundled into
+ * the browser. A deployed app sets `GROK_AUTH_CLIENT_SECRET` instead, and that
+ * value wins.
  */
 export const PREVIEW_CLIENT_ID = "grok_preview";
-export const PREVIEW_CLIENT_SECRET =
-  "8bcdb7fc5a33874ad933ca568918d5790388a0795e44c4d1dea691f801b17ec5";
+
+/**
+ * The live-preview OAuth client secret. Server-only.
+ * Throws when the env var is missing or blank, so a preview sign-in cannot
+ * start with an empty secret.
+ */
+export function previewClientSecret(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const value = env.GROK_PREVIEW_CLIENT_SECRET?.trim();
+  if (!value) {
+    throw new Error(
+      "GROK_PREVIEW_CLIENT_SECRET is unset. The live-preview OAuth client needs this server environment variable.",
+    );
+  }
+  return value;
+}
 
 /** The shared auth broker issuer (OIDC discovery lives under it). */
 export const GROK_ISSUER_DEFAULT = "https://auth.grok.me";
