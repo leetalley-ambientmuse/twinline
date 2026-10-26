@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Circle, Eraser } from "lucide-react";
 import { useApp, type MixFrame } from "@/lib/store";
 import { Fader, Slider } from "@/components/controls";
+import { NiftyLanes } from "@/components/NiftyLanes";
 import { useRack } from "@/components/rack-context";
 import type { DeckId } from "@/lib/audio/model";
 
@@ -95,8 +96,9 @@ export function Mixer() {
         <ChannelEq deckId="b" onHold={holdMixer} />
       </div>
       <Slider label="Main" value={master} onHold={holdMixer} onChange={setMaster} />
-      <div className="lg:hidden">
+      <div className="flex flex-col gap-6 lg:hidden">
         <MixTrack />
+        <NiftyLanes />
       </div>
     </section>
   );

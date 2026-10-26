@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { APP_NAME, APP_TAG } from "@/lib/brand";
 import { Rack } from "@/lib/audio/engine";
+import { bindMidiClock, niftyPulse, requestMidi } from "@/lib/midi/nifty";
 import type { DeckId, VoiceId } from "@/lib/audio/model";
 import { loadSaved, persistState, useApp } from "@/lib/store";
 import { RackProvider } from "@/components/rack-context";
 import { Transport } from "@/components/Transport";
 import { DeckPanel } from "@/components/DeckPanel";
 import { Mixer, MixTrack } from "@/components/Mixer";
+import { NiftyLanes } from "@/components/NiftyLanes";
 import { SynthView } from "@/components/SynthView";
 import { PromptWizard } from "@/components/PromptWizard";
 
@@ -20,6 +22,7 @@ export function TwinlineApp() {
   const setMobilePane = useApp((state) => state.setMobilePane);
 
   const arm = useCallback(() => {
+    void requestMidi();
     const existing = rackRef.current;
     if (existing) {
       if (existing.ctx.state === "suspended") void existing.ctx.resume();
@@ -28,6 +31,7 @@ export function TwinlineApp() {
     const AudioCtx = window.AudioContext;
     const ctx = new AudioCtx({ latencyHint: "interactive" });
     void ctx.resume();
+    bindMidiClock(ctx);
     const rack = new Rack(
       ctx,
       () => useApp.getState().snapshot(),
@@ -35,6 +39,7 @@ export function TwinlineApp() {
         if (useApp.getState().step !== step) useApp.getState().setStep(step);
       },
     );
+    rack.setMidi(niftyPulse);
     rackRef.current = rack;
     useApp.getState().setArmed(true);
   }, []);
@@ -52,7 +57,9 @@ export function TwinlineApp() {
       const stored =
         audioChanged ||
         state.automation !== previous.automation ||
-        state.followMix !== previous.followMix;
+        state.followMix !== previous.followMix ||
+        state.nifty !== previous.nifty ||
+        state.midiPortName !== previous.midiPortName;
       if (!stored) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(() => persistState(state), 200);
@@ -162,8 +169,9 @@ export function TwinlineApp() {
                 <DeckPanel deckId="b" />
               </div>
             </div>
-            <section className="panel mx-3 mb-4 hidden p-4 lg:block">
+            <section className="panel mx-3 mb-4 hidden flex-col gap-6 p-4 lg:flex">
               <MixTrack />
+              <NiftyLanes />
             </section>
             <nav className="chrome-bar fixed inset-x-0 bottom-0 z-20 grid grid-cols-3 border-t lg:hidden">
               <PaneButton

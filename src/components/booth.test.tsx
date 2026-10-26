@@ -16,6 +16,7 @@ vi.mock("@/lib/audio/engine", () => {
     start = vi.fn();
     stop = vi.fn();
     sync = vi.fn();
+    setMidi = vi.fn();
     preview = vi.fn();
     readLevel = vi.fn(() => 0.8);
     bounce = vi.fn(async () => new Blob([Uint8Array.from([82, 73, 70, 70])], { type: "audio/wav" }));

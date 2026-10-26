@@ -226,6 +226,28 @@
   inset: 0.2rem;
 }
 
+.nifty-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.nifty-step[data-on="0"] {
+  color: var(--color-muted);
+}
+
+.nifty-step[data-on="1"] {
+  color: var(--color-ink);
+}
+
+.nifty-step[data-arm="1"] {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 1px;
+}
+
 .mix-a,
 .mix-b {
   position: absolute;
