@@ -62,6 +62,8 @@ export type SpellNote = {
   roles: Record<DeckId, string>;
 };
 
+export type NiftyStep = { on: boolean; note: number };
+
 export type AppState = {
   armed: boolean;
   playing: boolean;
@@ -74,6 +76,8 @@ export type AppState = {
   crossfade: number;
   master: number;
   automation: (MixFrame | null)[];
+  nifty: [NiftyStep[], NiftyStep[]];
+  midiPortName: string;
   mobilePane: "a" | "mix" | "b";
   synthDeck: DeckId | null;
   decks: Record<DeckId, DeckState>;
@@ -92,6 +96,10 @@ export type AppState = {
   focusMixStep: (index: number) => void;
   clearAutomation: () => void;
   eraseMixStep: (index: number) => void;
+  toggleNifty: (lane: 0 | 1, index: number) => void;
+  setNiftyNote: (lane: 0 | 1, index: number, note: number) => void;
+  clearNifty: (lane: 0 | 1) => void;
+  setMidiPortName: (name: string) => void;
   setMobilePane: (pane: "a" | "mix" | "b") => void;
   openSynth: (deck: DeckId) => void;
   closeSynth: () => void;
@@ -281,6 +289,72 @@ function blankAutomation(): (MixFrame | null)[] {
   return Array.from({ length: 16 }, () => null);
 }
 
+const CV1: NiftyStep[] = [
+  { on: true, note: 36 },
+  { on: false, note: 36 },
+  { on: false, note: 36 },
+  { on: false, note: 36 },
+  { on: true, note: 36 },
+  { on: false, note: 43 },
+  { on: false, note: 43 },
+  { on: true, note: 43 },
+  { on: true, note: 38 },
+  { on: false, note: 38 },
+  { on: false, note: 38 },
+  { on: false, note: 38 },
+  { on: true, note: 41 },
+  { on: false, note: 41 },
+  { on: true, note: 43 },
+  { on: false, note: 43 },
+];
+
+const CV2: NiftyStep[] = [
+  { on: false, note: 48 },
+  { on: false, note: 48 },
+  { on: true, note: 55 },
+  { on: false, note: 55 },
+  { on: false, note: 52 },
+  { on: false, note: 52 },
+  { on: true, note: 60 },
+  { on: false, note: 60 },
+  { on: false, note: 55 },
+  { on: false, note: 55 },
+  { on: true, note: 64 },
+  { on: false, note: 64 },
+  { on: false, note: 60 },
+  { on: false, note: 60 },
+  { on: true, note: 67 },
+  { on: false, note: 62 },
+];
+
+export function defaultNifty(): [NiftyStep[], NiftyStep[]] {
+  return [CV1.map((step) => ({ ...step })), CV2.map((step) => ({ ...step }))];
+}
+
+function copyLane(steps: NiftyStep[]): NiftyStep[] {
+  return steps.map((step) => ({ ...step }));
+}
+
+function parseLane(value: unknown, fallback: NiftyStep[]): NiftyStep[] {
+  if (!Array.isArray(value) || value.length !== 16) return copyLane(fallback);
+  return fallback.map((fallbackStep, index) => {
+    const cell = value[index];
+    if (!cell || typeof cell !== "object") return { ...fallbackStep };
+    const record = cell as { on?: unknown; note?: unknown };
+    const note = Math.round(Number(record.note));
+    return {
+      on: record.on === true,
+      note: Number.isFinite(note) ? Math.min(108, Math.max(24, note)) : fallbackStep.note,
+    };
+  });
+}
+
+function parseNifty(value: unknown): [NiftyStep[], NiftyStep[]] | null {
+  if (!Array.isArray(value) || value.length !== 2) return null;
+  const base = defaultNifty();
+  return [parseLane(value[0], base[0]), parseLane(value[1], base[1])];
+}
+
 const MIX_FIELDS = [
   "aVol",
   "bVol",
@@ -328,7 +402,10 @@ function writeLock(
 }
 
 export function loadSaved(): Partial<
-  Pick<AppState, "bpm" | "crossfade" | "master" | "decks" | "automation" | "followMix" | "spell">
+  Pick<
+    AppState,
+    "bpm" | "crossfade" | "master" | "decks" | "automation" | "followMix" | "spell" | "nifty" | "midiPortName"
+  >
 > | null {
   if (typeof window === "undefined") return null;
   try {
@@ -342,9 +419,12 @@ export function loadSaved(): Partial<
       automation?: unknown;
       followMix?: unknown;
       spell?: unknown;
+      nifty?: unknown;
+      midiPortName?: unknown;
     };
     const base = factoryDecks();
     const automation = parseAutomation(data.automation);
+    const nifty = parseNifty(data.nifty);
     return {
       bpm: typeof data.bpm === "number" ? Math.min(180, Math.max(70, data.bpm)) : undefined,
       crossfade: typeof data.crossfade === "number" ? clamp01(data.crossfade) : undefined,
@@ -356,6 +436,8 @@ export function loadSaved(): Partial<
       ...(automation ? { automation } : {}),
       followMix: data.followMix === true,
       spell: readSpell(data.spell),
+      ...(nifty ? { nifty } : {}),
+      ...(typeof data.midiPortName === "string" ? { midiPortName: data.midiPortName } : {}),
     };
   } catch {
     return null;
@@ -372,6 +454,8 @@ export function persistState(state: AppState): void {
     automation: state.automation,
     followMix: state.followMix,
     spell: state.spell,
+    nifty: state.nifty,
+    midiPortName: state.midiPortName,
   };
   window.localStorage.setItem(KEY, JSON.stringify(payload));
 }
@@ -409,6 +493,8 @@ export function downloadProject(): void {
     automation: state.automation,
     followMix: state.followMix,
     spell: state.spell,
+    nifty: state.nifty,
+    midiPortName: state.midiPortName,
   };
   const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -435,9 +521,12 @@ export function importProject(raw: string): boolean {
     automation?: unknown;
     followMix?: unknown;
     spell?: unknown;
+    nifty?: unknown;
+    midiPortName?: unknown;
   };
   const base = factoryDecks();
   const automation = parseAutomation(record.automation);
+  const nifty = parseNifty(record.nifty);
   useApp.setState({
     bpm: typeof record.bpm === "number" ? Math.min(180, Math.max(70, record.bpm)) : useApp.getState().bpm,
     crossfade: typeof record.crossfade === "number" ? clamp01(record.crossfade) : useApp.getState().crossfade,
@@ -449,6 +538,8 @@ export function importProject(raw: string): boolean {
     ...(automation ? { automation } : {}),
     followMix: record.followMix === true,
     spell: readSpell(record.spell),
+    ...(nifty ? { nifty } : {}),
+    ...(typeof record.midiPortName === "string" ? { midiPortName: record.midiPortName } : {}),
     history: [],
   });
   return true;
@@ -509,6 +600,8 @@ export const useApp = create<AppState>((set, get) => ({
   crossfade: 0.5,
   master: 0.78,
   automation: blankAutomation(),
+  nifty: defaultNifty(),
+  midiPortName: "",
   mobilePane: "a",
   synthDeck: null,
   decks: factoryDecks(),
@@ -587,6 +680,32 @@ export const useApp = create<AppState>((set, get) => ({
     automation[index] = null;
     set({ automation, armStep: index });
   },
+  toggleNifty: (lane, index) =>
+    set((state) => {
+      if (index < 0 || index > 15) return state;
+      const lanes: [NiftyStep[], NiftyStep[]] = [state.nifty[0].slice(), state.nifty[1].slice()];
+      const cell = { ...lanes[lane][index] };
+      cell.on = !cell.on;
+      lanes[lane][index] = cell;
+      return { nifty: lanes };
+    }),
+  setNiftyNote: (lane, index, note) =>
+    set((state) => {
+      if (index < 0 || index > 15) return state;
+      const lanes: [NiftyStep[], NiftyStep[]] = [state.nifty[0].slice(), state.nifty[1].slice()];
+      lanes[lane][index] = {
+        ...lanes[lane][index],
+        note: Math.min(108, Math.max(24, Math.round(note))),
+      };
+      return { nifty: lanes };
+    }),
+  clearNifty: (lane) =>
+    set((state) => {
+      const lanes: [NiftyStep[], NiftyStep[]] = [state.nifty[0].slice(), state.nifty[1].slice()];
+      lanes[lane] = lanes[lane].map((step) => ({ ...step, on: false }));
+      return { nifty: lanes };
+    }),
+  setMidiPortName: (midiPortName) => set({ midiPortName }),
   setMobilePane: (mobilePane) => set({ mobilePane }),
   openSynth: (synthDeck) => set({ synthDeck }),
   closeSynth: () => set({ synthDeck: null }),

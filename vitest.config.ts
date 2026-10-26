@@ -12,6 +12,7 @@ export default defineConfig({
     include: [
       "src/lib/audio/**/*.test.ts",
       "src/lib/prompt/**/*.test.ts",
+      "src/lib/midi/**/*.test.ts",
       "src/lib/store.test.ts",
       "src/lib/brand.test.ts",
       "src/components/booth.test.tsx",

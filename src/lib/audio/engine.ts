@@ -44,6 +44,12 @@ type Channel = {
 
 const DECKS: DeckId[] = ["a", "b"];
 
+export type MidiPulse = {
+  play: (audioTime: number) => void;
+  halt: () => void;
+  step: (step: number, audioTime: number, stepDur: number) => void;
+};
+
 export class Rack {
   readonly ctx: AudioContext;
   private readonly getState: () => RackSnapshot;
@@ -63,6 +69,7 @@ export class Rack {
   private queue: { step: number; time: number }[] = [];
   private visualStep = -1;
   private running = false;
+  private midi: MidiPulse | null = null;
 
   constructor(ctx: AudioContext, getState: () => RackSnapshot, onStep: (step: number) => void) {
     this.ctx = ctx;
@@ -181,12 +188,17 @@ export class Rack {
     }
   }
 
+  setMidi(midi: MidiPulse | null): void {
+    this.midi = midi;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
     this.stepIndex = 0;
     this.nextNoteTime = this.ctx.currentTime + 0.05;
     this.queue = [];
+    this.midi?.play(this.nextNoteTime);
     this.scheduler();
     this.raf = requestAnimationFrame(this.pumpVisual);
   }
@@ -202,6 +214,7 @@ export class Rack {
     this.queue = [];
     this.visualStep = -1;
     this.onStep(-1);
+    this.midi?.halt();
   }
 
   preview(deck: DeckId, voice: VoiceId): void {
@@ -263,6 +276,7 @@ export class Rack {
       }
     }
     this.queue.push({ step, time });
+    if (this.running) this.midi?.step(step, time, stepDur);
   }
 
   private trigger(
