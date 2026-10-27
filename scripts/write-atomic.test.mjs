@@ -164,9 +164,11 @@ test("cli: relative paths follow the script's root, not the caller's cwd", () =>
   assert.equal(existsSync(join(root, "public/og.jpg")), false);
 });
 
-test("every hand-over the og skill prints is one this script accepts", () => {
+const SKILL_FIXTURE_DIR = join(TEMPLATE_ROOT, "scripts/fixtures/og-skill");
+const REAL_OG_DIR = join(TEMPLATE_ROOT, ".grok/skills/og");
+
+function assertHandOvers(skillDir) {
   // The card and banner recipes live in the skill's references/, not SKILL.md.
-  const skillDir = join(TEMPLATE_ROOT, ".grok/skills/og");
   const docs = [
     join(skillDir, "SKILL.md"),
     ...readdirSync(join(skillDir, "references")).map((f) => join(skillDir, "references", f)),
@@ -185,7 +187,23 @@ test("every hand-over the og skill prints is one this script accepts", () => {
       line,
     );
   }
+}
+
+test("every hand-over the og skill prints is one this script accepts", () => {
+  assertHandOvers(SKILL_FIXTURE_DIR);
 });
+
+test(
+  "the checkout og skill hand-overs are ones this script accepts",
+  {
+    skip: existsSync(join(REAL_OG_DIR, "SKILL.md"))
+      ? false
+      : ".grok/skills/og is absent. The fixture holds the contract.",
+  },
+  () => {
+    assertHandOvers(REAL_OG_DIR);
+  },
+);
 
 test("cli: a missing staged file fails without touching the target", () => {
   const root = makeWorkspace();

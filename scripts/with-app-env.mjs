@@ -8,8 +8,10 @@
  * mismatch long after the fact. Anything that starts Vite directly bypasses it.
  *
  * Only `VITE_`-prefixed keys are honored: the file is a build flag carrier, not
- * a secret store, and only `VITE_` vars reach the browser anyway. A real
- * `process.env` entry always wins, so an explicit override still works.
+ * a secret store, and only `VITE_` vars reach the browser anyway. A `VITE_`
+ * entry in the env source always wins over the file, so an explicit override
+ * still works. The source defaults to `process.env`. Non-`VITE_` keys never
+ * enter the app env.
  *
  * That precedence also means the file governs this workspace only. A deployed
  * build runs with the provider's project env, where the deployer sets
@@ -51,13 +53,34 @@ export function parseAppEnv(text) {
   return env;
 }
 
-/** The app env recorded under `root`, or `{}` when the file is absent. */
-export function readAppEnv(root) {
-  try {
-    return parseAppEnv(readFileSync(join(root, APP_ENV_REL_PATH), "utf8"));
-  } catch {
-    return {};
+/** `VITE_` string entries from an env source. Other keys are not app flags. */
+function viteEnvEntries(sourceEnv) {
+  const env = {};
+  if (sourceEnv === null || sourceEnv === undefined || typeof sourceEnv !== "object") return env;
+  for (const [key, value] of Object.entries(sourceEnv)) {
+    if (!key.startsWith(VITE_PREFIX)) continue;
+    if (typeof value !== "string") continue;
+    env[key] = value;
   }
+  return env;
+}
+
+/**
+ * The app env for `root`.
+ *
+ * Precedence, low to high: the `.grok/app-env.json` file, then `VITE_` strings
+ * from `sourceEnv`. `sourceEnv` defaults to `process.env`, so a missing file
+ * still follows the environment. Pass `{}` to read the file alone. A missing
+ * file and an empty source are `{}`, which means auth stays on.
+ */
+export function readAppEnv(root, sourceEnv = process.env) {
+  let fromFile = {};
+  try {
+    fromFile = parseAppEnv(readFileSync(join(root, APP_ENV_REL_PATH), "utf8"));
+  } catch {
+    fromFile = {};
+  }
+  return { ...fromFile, ...viteEnvEntries(sourceEnv) };
 }
 
 /** File values under the process environment: an explicit override wins. */

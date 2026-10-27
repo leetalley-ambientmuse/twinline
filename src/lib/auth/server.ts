@@ -44,7 +44,7 @@ import {
   GROK_ISSUER_DEFAULT,
   PREVIEW_ALLOWED_HOSTS,
   PREVIEW_CLIENT_ID,
-  PREVIEW_CLIENT_SECRET,
+  previewClientSecret,
 } from "./preview";
 
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
@@ -79,7 +79,12 @@ const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 // for any `*.grok-sandbox.com` callback (see `./preview`).
 const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
 const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
-const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
+// Deployed apps bring their own client secret. Live preview needs
+// GROK_PREVIEW_CLIENT_SECRET, and only when sign-in is on. Auth off must
+// still load this module with the variable unset.
+const deployedClientSecret = env("GROK_AUTH_CLIENT_SECRET");
+const grokClientSecret =
+  deployedClientSecret ?? (authDisabled ? undefined : previewClientSecret());
 
 /** True when federated sign-in is active (real auth is enforced). */
 export const authConfigured =

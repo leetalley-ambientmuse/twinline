@@ -1,4 +1,4 @@
-name: NodeJS with Webpack
+name: CI
 
 on:
   push:
@@ -10,9 +10,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      GROK_PREVIEW_CLIENT_SECRET: ci-dummy-preview-secret
+
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        node-version: [22.x]
 
     steps:
     - uses: actions/checkout@v4
@@ -21,8 +24,18 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
+        cache: npm
+
+    - name: Install
+      run: npm ci
+
+    - name: Typecheck
+      run: npm run typecheck
+
+    - name: Test
+      run: npm test
 
     - name: Build
-      run: |
-        npm install
-        npx webpack
+      env:
+        VITE_AUTH_ENABLED: 'false'
+      run: npx vite build
