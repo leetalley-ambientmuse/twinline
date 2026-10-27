@@ -8,7 +8,7 @@
  *   node scripts/check-rules.mjs
  *   node scripts/check-rules.mjs --demo
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { extname, join, relative } from "node:path";
@@ -719,17 +719,66 @@ export function checkSuppressions(files) {
   return findings;
 }
 
-/** @param {{ rel: string, text: string }[]} files */
-export function checkNodeVersion(files) {
+/** First number in a Node range: "22", "22.x", ">=22.0.0". */
+function nodeMajor(spec) {
+  const match = String(spec).match(/(\d+)/);
+  return match ? match[1] : "";
+}
+
+/** Literal `node-version` values. Matrix expressions are ignored; the list they point at is not. */
+function workflowNodeVersions(text) {
+  /** @type {string[]} */
+  const versions = [];
+  for (const match of text.matchAll(/node-version:\s*\[([^\]]+)\]/g)) {
+    for (const part of match[1].split(",")) {
+      const value = part.trim().replace(/^["']|["']$/g, "");
+      if (/\d/.test(value)) versions.push(value);
+    }
+  }
+  for (const match of text.matchAll(/node-version:\s*["']?(\d[^"'\s#]*)/g)) {
+    versions.push(match[1]);
+  }
+  return versions;
+}
+
+/**
+ * @param {string} root
+ * @param {{ rel: string, text: string }[]} files
+ */
+export function checkNodeVersion(root, files) {
   /** @type {ReturnType<typeof hit>[]} */
   const findings = [];
+  let enginesNode = "";
+  try {
+    enginesNode = String(readJson(root, "package.json").engines?.node ?? "");
+  } catch {
+    enginesNode = "";
+  }
+  const enginesMajor = nodeMajor(enginesNode);
+  if (!enginesMajor) {
+    findings.push(hit("package.json", 1, 'engines.node is set to the CI Node major ("22")'));
+  }
   const workflows = files.filter((file) => file.rel.startsWith(".github/workflows/") && /\.ya?ml$/.test(file.rel));
   if (!workflows.some((file) => file.text.includes("actions/setup-node"))) {
     findings.push(hit(".github/workflows", 1, "CI sets up Node"));
   }
   for (const file of workflows) {
-    if (file.text.includes("actions/setup-node") && !file.text.includes("22")) {
-      findings.push(hit(file.rel, 1, "actions/setup-node uses Node 22"));
+    if (!file.text.includes("actions/setup-node")) continue;
+    const versions = workflowNodeVersions(file.text);
+    if (versions.length === 0) {
+      findings.push(hit(file.rel, 1, "actions/setup-node declares a Node version"));
+      continue;
+    }
+    for (const version of versions) {
+      if (!enginesMajor || nodeMajor(version) !== enginesMajor) {
+        findings.push(
+          hit(
+            file.rel,
+            1,
+            `actions/setup-node ${version} does not match engines.node ${enginesNode || "(unset)"}`,
+          ),
+        );
+      }
     }
   }
   return findings;
@@ -829,7 +878,24 @@ export function checkExplicitAny(files) {
  * @param {string} root
  * @param {{ rel: string, text: string }[]} files
  */
-export function checkVitestCi(root, files) {
+/**
+ * @param {string} script
+ * @param {{ rel: string, text: string }[]} files
+ */
+function vitestIncludeGlobs(script, files) {
+  if (!/\bvitest\b/.test(script)) return [];
+  const vitest = files.find((file) => file.rel === "vitest.config.ts");
+  const include = vitest?.text.match(/include:\s*\[([\s\S]*?)\]/);
+  if (!include) return [];
+  return [...include[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+
+/**
+ * Every test file is reachable from `npm test`, and a workflow runs that script.
+ * @param {string} root
+ * @param {{ rel: string, text: string }[]} files
+ */
+export function checkTestWiring(root, files) {
   /** @type {ReturnType<typeof hit>[]} */
   const findings = [];
   let testScript = "";
@@ -838,14 +904,122 @@ export function checkVitestCi(root, files) {
   } catch {
     testScript = "";
   }
-  if (testScript.includes("vitest")) return findings;
-  for (const file of files) {
-    if (!/\.test\.(ts|tsx)$/.test(file.rel)) continue;
-    if (!/from\s*["']vitest["']/.test(file.text)) continue;
-    findings.push(
-      hit(file.rel, 1, "vitest file is outside npm test, and CI only runs npm test"),
-    );
+  const quoted = [...testScript.matchAll(/'([^']+)'|"([^"]+)"/g)].map((match) => match[1] || match[2]);
+  const vitestGlobs = vitestIncludeGlobs(testScript, files);
+  const workflows = files.filter((file) => file.rel.startsWith(".github/workflows/") && /\.ya?ml$/.test(file.rel));
+  const ciRuns = workflows.some((file) => /(?:^|\n)\s*-?\s*run:\s*npm (?:run )?test\b/.test(file.text));
+  if (!ciRuns) {
+    findings.push(hit(".github/workflows", 1, "a workflow runs npm test"));
   }
+  for (const file of files) {
+    if (!/\.test\.(ts|tsx|mjs)$/.test(file.rel)) continue;
+    const byPath =
+      quoted.some((token) => token.includes("*") && globMatch(token, file.rel)) || testScript.includes(file.rel);
+    const byVitest = vitestGlobs.some((glob) => globMatch(glob, file.rel));
+    if (!byPath && !byVitest) {
+      findings.push(hit(file.rel, 1, "test file is not wired into npm test"));
+    }
+  }
+  return findings;
+}
+
+/** Non-test src modules that read process.env belong in a `.server.ts` file. */
+export function checkServerSuffix(files) {
+  /** @type {ReturnType<typeof hit>[]} */
+  const findings = [];
+  const needle = "process" + ".env";
+  for (const file of files) {
+    if (!file.rel.startsWith("src/") || !file.rel.endsWith(".ts")) continue;
+    if (file.rel.includes(".test.") || file.rel.endsWith(".server.ts") || file.rel === GENERATED) continue;
+    for (const { line, text } of codeLines(file.text)) {
+      if (!text.includes(needle)) continue;
+      findings.push(
+        hit(
+          file.rel,
+          line,
+          "server-only module should use the .server.ts suffix so it is not bundled to the client",
+        ),
+      );
+      break;
+    }
+  }
+  return findings;
+}
+
+/**
+ * @param {string} root
+ * @param {string} bin
+ * @param {string[]} args
+ */
+function runBin(root, bin, args) {
+  const exe = join(root, "node_modules", ".bin", bin);
+  if (!existsSync(exe)) return { missing: true, text: "" };
+  const result = spawnSync(exe, args, { cwd: root, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+  if (result.error) return { missing: true, text: "" };
+  return { missing: false, text: `${result.stdout ?? ""}\n${result.stderr ?? ""}` };
+}
+
+/** @type {Map<string, ReturnType<typeof hit>[]>} */
+const prettierCache = new Map();
+
+/** @param {string} root */
+export function checkPrettier(root) {
+  const cached = prettierCache.get(root);
+  if (cached) return cached;
+  /** @type {ReturnType<typeof hit>[]} */
+  const findings = [];
+  const run = runBin(root, "prettier", ["--check", "."]);
+  if (run.missing) {
+    findings.push(hit("package.json", 1, "prettier is installed so CI can warn on format drift"));
+  } else {
+    for (const line of run.text.split("\n")) {
+      const match = line.match(/^\[warn\] (.+)$/);
+      if (!match || match[1].startsWith("Code style issues")) continue;
+      findings.push(hit(match[1].trim(), 1, "prettier --check reports this file"));
+    }
+  }
+  prettierCache.set(root, findings);
+  return findings;
+}
+
+/** @type {Map<string, ReturnType<typeof hit>[]>} */
+const eslintCache = new Map();
+
+/** @param {string} root */
+export function checkEslint(root) {
+  const cached = eslintCache.get(root);
+  if (cached) return cached;
+  /** @type {ReturnType<typeof hit>[]} */
+  const findings = [];
+  const run = runBin(root, "eslint", [".", "-f", "json"]);
+  if (run.missing) {
+    findings.push(hit("package.json", 1, "eslint is installed so CI can warn on lint findings"));
+  } else {
+    const start = run.text.indexOf("[");
+    const end = run.text.lastIndexOf("]");
+    /** @type {null | { filePath: string, messages?: { line?: number, ruleId?: string | null, message: string }[] }[]} */
+    let parsed = null;
+    if (start !== -1 && end > start) {
+      try {
+        parsed = JSON.parse(run.text.slice(start, end + 1));
+      } catch {
+        parsed = null;
+      }
+    }
+    if (!parsed) {
+      findings.push(hit("package.json", 1, "eslint --format json did not return a report"));
+    } else {
+      for (const file of parsed) {
+        const rel = relative(root, file.filePath).split("\\").join("/");
+        if (rel.startsWith("..") || rel.startsWith("node_modules/")) continue;
+        for (const message of file.messages ?? []) {
+          const rule = message.ruleId ? `${message.ruleId}: ` : "";
+          findings.push(hit(rel || file.filePath, message.line || 1, `${rule}${message.message}`));
+        }
+      }
+    }
+  }
+  eslintCache.set(root, findings);
   return findings;
 }
 
@@ -871,13 +1045,16 @@ export const RULES = [
   { id: "H-19", severity: "hard", check: (_root, files) => checkMigrations(files) },
   { id: "H-20", severity: "hard", check: (root) => checkPlatform(root) },
   { id: "H-21", severity: "hard", check: (_root, files) => checkSuppressions(files) },
-  { id: "H-22", severity: "hard", check: (_root, files) => checkNodeVersion(files) },
+  { id: "H-22", severity: "hard", check: checkNodeVersion },
   { id: "H-23", severity: "hard", check: (root) => checkLockfile(root) },
   { id: "H-24", severity: "hard", check: (_root, files) => checkImportQuotes(files) },
   { id: "H-25", severity: "hard", check: (_root, files) => checkNoTabs(files) },
+  { id: "H-26", severity: "hard", check: checkTestWiring },
   { id: "S-01", severity: "soft", check: (_root, files) => checkTrailingNewline(files) },
   { id: "S-02", severity: "soft", check: (_root, files) => checkExplicitAny(files) },
-  { id: "S-03", severity: "soft", check: checkVitestCi },
+  { id: "S-04", severity: "soft", check: (_root, files) => checkServerSuffix(files) },
+  { id: "S-05", severity: "soft", check: (root) => checkPrettier(root) },
+  { id: "S-06", severity: "soft", check: (root) => checkEslint(root) },
 ];
 
 /**
@@ -961,7 +1138,7 @@ function emitGitHub(findings) {
   const hard = findings.filter((item) => item.severity === "hard");
   const soft = findings.filter((item) => item.severity === "soft");
   const rows = findings
-    .map((item) => `| ${item.id} | \`${item.path}:${item.line}\` | ${item.message} |`)
+    .map((item) => `| ${item.id} | \`${item.path}:${item.line}\` | ${item.message.replaceAll("|", "/")} |`)
     .join("\n");
   appendFileSync(
     summaryPath,

@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   checkConsoleLog,
+  checkNodeVersion,
   checkRepository,
   checkRoutes,
+  checkTestWiring,
   demoFindings,
   globMatch,
 } from "./check-rules.mjs";
@@ -30,29 +32,41 @@ test("the current tree passes every hard rule", () => {
   );
 });
 
-test("soft findings are the known newline miss and the vitest files CI does not run", () => {
+test("soft findings are the known newline, server-suffix, prettier, and eslint misses", () => {
   const soft = checkRepository(root).filter((item) => item.severity === "soft");
-  const newline = soft.filter((item) => item.id === "S-01");
-  const vitest = soft.filter((item) => item.id === "S-03").map((item) => item.path);
-  assert.deepEqual(
-    newline.map((item) => item.path),
-    ["src/components/DeckPanel.tsx"],
-  );
-  assert.deepEqual(vitest.sort(), [
-    "src/components/booth.test.tsx",
-    "src/components/controls.test.tsx",
-    "src/lib/audio/engine.test.ts",
-    "src/lib/audio/model.test.ts",
-    "src/lib/audio/samples.test.ts",
-    "src/lib/brand.test.ts",
-    "src/lib/midi/nifty.test.ts",
-    "src/lib/prompt/arrange.test.ts",
-    "src/lib/store.test.ts",
+  const paths = (id) => soft.filter((item) => item.id === id).map((item) => item.path).sort();
+  assert.deepEqual(paths("S-01"), ["src/components/DeckPanel.tsx"]);
+  assert.deepEqual(paths("S-02"), []);
+  assert.deepEqual(paths("S-03"), []);
+  assert.deepEqual(paths("S-04"), [
+    "src/lib/auth/preview.ts",
+    "src/lib/auth/server.ts",
+    "src/lib/db.ts",
+    "src/lib/prompt/compose.ts",
   ]);
-  assert.equal(
-    soft.some((item) => item.id === "S-02"),
-    false,
-  );
+  assert.ok(paths("S-05").length > 0, "prettier --check warns");
+  assert.ok(paths("S-06").includes("src/lib/app-data/client.server.ts"));
+  assert.ok(paths("S-06").includes("src/components/rack-context.tsx"));
+  assert.ok(paths("S-06").includes("src/lib/audio/engine.ts"));
+});
+
+test("engines.node must match the Actions Node major", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rules-node-"));
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ engines: { node: "20" } }));
+  const findings = checkNodeVersion(dir, [
+    { rel: ".github/workflows/ci.yml", text: "uses: actions/setup-node@v4\n          node-version: 22\n" },
+  ]);
+  assert.ok(findings.some((item) => item.message.includes("does not match")));
+});
+
+test("a test file outside npm test is a hard finding", () => {
+  const findings = checkTestWiring(root, [
+    {
+      rel: "src/lib/orphan.test.ts",
+      text: 'import { test } from "node:test";\nimport assert from "node:assert/strict";\n',
+    },
+  ]);
+  assert.ok(findings.some((item) => item.path === "src/lib/orphan.test.ts"));
 });
 
 test("demo input trips hard and soft rules", () => {
