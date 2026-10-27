@@ -972,7 +972,9 @@ export function checkPrettier(root) {
   if (run.missing) {
     findings.push(hit("package.json", 1, "prettier is installed so CI can warn on format drift"));
   } else {
-    for (const line of run.text.split("\n")) {
+    // CI sets colors on, so the prefix is "[<ansi>warn<ansi>]" rather than "[warn]".
+    const text = run.text.replace(/\u001b\[[0-9;]*m/g, "");
+    for (const line of text.split("\n")) {
       const match = line.match(/^\[warn\] (.+)$/);
       if (!match || match[1].startsWith("Code style issues")) continue;
       findings.push(hit(match[1].trim(), 1, "prettier --check reports this file"));
